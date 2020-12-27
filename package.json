@@ -1,0 +1,15 @@
+{
+    "name": "melvor-scratch-off",
+    "version": "1.0.0",
+    "description": "Scratches off presents for MelvorIdle special events",
+    "main": "index.js",
+    "scripts": {
+        "start": "node index.js",
+        "test": "test"
+    },
+    "author": "Tanner Chell",
+    "license": "GPL-3.0-or-later",
+    "dependencies": {
+        "puppeteer": "^5.5.0"
+    }
+}
