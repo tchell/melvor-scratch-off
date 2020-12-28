@@ -44,6 +44,12 @@ const eventString = 'Christmas Event 2020';
   await chooseCharacter(page, 0);
   console.log(`Cloud save ${0 + 1} selected.`);
 
+  if (!(await checkBankAvailability(page, 20))) {
+    console.log('Not enough room in bank.');
+    await browser.close();
+    process.exit();
+  }
+
   await selectEventPage(page, eventString);
   console.log(`Opened ${eventString} event page.`);
   await page.waitForTimeout(5000);
@@ -198,4 +204,22 @@ async function scratchPresent(page) {
     mod += 2;
     yLoc = present.y + rowSize * mod;
   } while (mod < 8);
+}
+
+/**
+ *
+ * @param {puppeteer.Page} page
+ * @param {number} desiredFreeSpaces - required number of free spaces to continue
+ * @returns {boolean}
+ */
+async function checkBankAvailability(page, desiredFreeSpaces) {
+  const bankSpaceXPath = '//*[@id="bank-space-nav"]';
+  const bankSpaceElement = (await page.$x(bankSpaceXPath))[0];
+  const bankSpaceText = await page.evaluate(
+    (element) => element.textContent,
+    bankSpaceElement,
+  );
+  const [items, spaces] = bankSpaceText.split('/').map((str) => parseInt(str));
+  console.log(`Free space in bank: ${spaces - items}/${desiredFreeSpaces}`);
+  return spaces - items >= desiredFreeSpaces;
 }
