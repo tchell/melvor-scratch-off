@@ -8,20 +8,23 @@ const puppeteer = require('puppeteer');
  *      - Character select
  *  - headless/headful
  *  - event name
+ *  - set bank availability
+ *  - check for bank not full
  *
  */
 
 const username = '';
 const password = '';
+const eventString = 'Christmas Event 2020';
 
 (async () => {
   const options = {
-    headless: false,
+    headless: true,
     defaultViewport: {
       width: 2560 / 2,
       height: 1440,
     },
-    devtools: true,
+    //devtools: true,
   };
   const browser = await puppeteer.launch(options);
   const page = (await browser.pages())[0];
@@ -31,6 +34,13 @@ const password = '';
   await acceptConditions(page);
   await showCloudSaves(page);
   await chooseCharacter(page, 0);
+
+  await selectEventPage(page, eventString);
+  await page.waitForTimeout(2500);
+  do {
+    await scratchPresent(page);
+    await page.waitForTimeout(2000);
+  } while ((await getPresentCount(page)) > 0);
 
   await browser.close();
 })();
@@ -62,6 +72,7 @@ async function login(page) {
 
   return navigate(page, '#login');
 }
+
 /**
  *
  * @param {puppeteer.Page} page
@@ -111,4 +122,55 @@ async function confirmOverwrite(page) {
   const confirmSelector =
     'body > div.swal2-container.swal2-center.swal-infront.swal2-backdrop-show > div > div.swal2-actions > button.swal2-confirm.swal2-styled';
   return navigate(page, confirmSelector, { waitUntil: 'networkidle2' });
+}
+
+/**
+ *
+ * @param {puppeteer.Page} page
+ * @param {string} eventString - The name of the event.
+ */
+async function selectEventPage(page, eventString) {
+  const eventXPath = `//div/span[text()="${eventString}"]`;
+  const eventLink = await page.waitForXPath(eventXPath, { visible: true });
+  return eventLink.click();
+}
+
+/**
+ *
+ * @param {puppeteer.Page} page
+ */
+async function getPresentCount(page) {
+  const presentCountXPath = '//*[@id="current-xmas-presents"]';
+  const presentCountElement = (await page.$x(presentCountXPath))[0];
+  const presentCount = await page.evaluate(
+    (element) => element.textContent,
+    presentCountElement,
+  );
+  return parseInt(presentCount);
+}
+
+/**
+ *
+ * @param {puppeteer.Page} page
+ */
+async function scratchPresent(page) {
+  const presentXPath = '//*[@id="js--sc--container"]/canvas';
+  const presentElement = (await page.$x(presentXPath))[0];
+  const present = await presentElement.boundingBox();
+  const mouse = page.mouse;
+
+  const xStart = present.x + 10;
+  const xEnd = present.x + present.width - 10;
+  const rowSize = present.height / 10;
+  let mod = 4;
+  let yLoc = present.y + rowSize * mod;
+
+  do {
+    await mouse.move(xStart, yLoc);
+    await mouse.down();
+    await mouse.move(xEnd, yLoc, { steps: 50 });
+    await mouse.up();
+    mod += 2;
+    yLoc = present.y + rowSize * mod;
+  } while (mod < 8);
 }
