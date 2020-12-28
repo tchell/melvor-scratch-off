@@ -1,3 +1,5 @@
+require('dotenv').config();
+const cliProgress = require('cli-progress');
 const puppeteer = require('puppeteer');
 
 /* TODO
@@ -13,8 +15,8 @@ const puppeteer = require('puppeteer');
  *
  */
 
-const username = '';
-const password = '';
+const username = process.env.USER_NAME;
+const password = process.env.PASSWORD;
 const eventString = 'Christmas Event 2020';
 
 (async () => {
@@ -31,16 +33,39 @@ const eventString = 'Christmas Event 2020';
 
   await page.goto('https://melvoridle.com/cloud/login.php');
   await login(page);
+  console.log(`Logged in as: ${username}.`);
+
   await acceptConditions(page);
+  console.log('Accepted Beta Conditions.');
+
   await showCloudSaves(page);
+  console.log('Picking a cloud save.');
+
   await chooseCharacter(page, 0);
+  console.log(`Cloud save ${0 + 1} selected.`);
 
   await selectEventPage(page, eventString);
-  await page.waitForTimeout(2500);
+  console.log(`Opened ${eventString} event page.`);
+  await page.waitForTimeout(5000);
+  let progressBar;
+  let presentCount, originalCount;
+  const remaining = 340;
   do {
     await scratchPresent(page);
     await page.waitForTimeout(2000);
-  } while ((await getPresentCount(page)) > 0);
+    presentCount = await getPresentCount(page);
+    if (progressBar === undefined) {
+      originalCount = presentCount;
+      progressBar = new cliProgress.SingleBar(
+        {},
+        cliProgress.Presets.shades_classic,
+      );
+      progressBar.start(originalCount - remaining, 1);
+    }
+    progressBar.update(originalCount - presentCount);
+  } while (presentCount > remaining);
+  progressBar.stop();
+  console.log(`${originalCount - remaining} present(s) opened. Exiting.`);
 
   await browser.close();
 })();
