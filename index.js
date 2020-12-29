@@ -1,38 +1,82 @@
 require('dotenv').config();
+const { program } = require('commander');
+const prompt = require('prompt');
 const cliProgress = require('cli-progress');
 const puppeteer = require('puppeteer');
 
 /* TODO
  * CLI Args:
- *  - username
- *  - password
  *  - cloud/local
  *      - Character select
  *  - headless/headful
  *  - event name
- *  - set bank availability
- *  - check for bank not full
- *
  */
 
-const username = process.env.USER_NAME;
-const password = process.env.PASSWORD;
 const eventString = 'Christmas Event 2020';
 
+program
+  .option('-u --username <string>', 'MelvorIdle Username')
+  .option('-p --password <string>', 'MelvorIdle Password')
+  .option(
+    '-i --ignore-bank-full',
+    'Scratch presents even if bank is full. Overrides --free-space',
+    false,
+  )
+  .option(
+    '-f --free-space <number>',
+    'Number of free bank spaces required to  continue.',
+    (val, radix) => parseInt(val),
+    20,
+  );
+
+program.parse(process.argv);
+
+const credentials = {};
+if (program.username || process.env.USER_NAME) {
+  credentials.username = program.username || process.env.USER_NAME;
+}
+
+if (program.password || process.env.PASSWORD) {
+  credentials.password = program.password || process.env.PASSWORD;
+}
+
+prompt.override = credentials;
+prompt.message = '';
+prompt.delimiter = '';
+
+prompt.start();
+
 (async () => {
-  const options = {
-    headless: true,
-    defaultViewport: {
-      width: 2560 / 2,
-      height: 1440,
+  const { username, password } = await prompt.get({
+    properties: {
+      username: {
+        description: 'Username:',
+        type: 'string',
+        required: true,
+      },
+      password: {
+        description: 'Password:',
+        type: 'string',
+        hidden: true,
+      },
     },
-    //devtools: true,
+  });
+  const options = {
+    headless: process.env.HEADLESS === 'false' ? false : true,
+    defaultViewport: {
+      width: process.env.WINDOW_WIDTH || 2560 / 2,
+      height: process.env.WINDOW_HEIGHT || 1440,
+    },
+    devtools: process.env.DEV_TOOLS === 'true' ? true : false,
   };
   const browser = await puppeteer.launch(options);
   const page = (await browser.pages())[0];
 
   await page.goto('https://melvoridle.com/cloud/login.php');
-  await login(page);
+  if (!(await login(page, username, password))) {
+    await browser.close();
+    return;
+  }
   console.log(`Logged in as: ${username}.`);
 
   await acceptConditions(page);
@@ -44,19 +88,33 @@ const eventString = 'Christmas Event 2020';
   await chooseCharacter(page, 0);
   console.log(`Cloud save ${0 + 1} selected.`);
 
-  if (!(await checkBankAvailability(page, 20))) {
-    console.log('Not enough room in bank.');
-    await browser.close();
-    process.exit();
+  await page.waitForTimeout(7000);
+
+  const ignoreBankFull = program.ignoreBankFull;
+  if (!ignoreBankFull) {
+    if (!(await checkBankAvailability(page, program.freeSpace))) {
+      console.log('Not enough room in bank.');
+      await browser.close();
+      return;
+    }
+  } else {
+    console.warn('Ignoring if bank is full or not enough items in bank!');
   }
 
   await selectEventPage(page, eventString);
   console.log(`Opened ${eventString} event page.`);
   await page.waitForTimeout(5000);
+
   let progressBar;
   let presentCount, originalCount;
-  const remaining = 340;
+  const remaining = 0;
   do {
+    if (!ignoreBankFull && !(await checkBankAvailability(page, 1))) {
+      console.error('Ran out of space in bank');
+      await browser.close();
+      return;
+    }
+
     await scratchPresent(page);
     await page.waitForTimeout(2000);
     presentCount = await getPresentCount(page);
@@ -71,6 +129,7 @@ const eventString = 'Christmas Event 2020';
     progressBar.update(originalCount - presentCount);
   } while (presentCount > remaining);
   progressBar.stop();
+  page.waitForTimeout(5000);
   console.log(`${originalCount - remaining} present(s) opened. Exiting.`);
 
   await browser.close();
@@ -89,8 +148,11 @@ async function navigate(page, selector, options) {
 /**
  *
  * @param {puppeteer.Page} page
+ * @param {string} username
+ * @param {string} password
+ * @returns {boolean} - If the login was successful or not.
  */
-async function login(page) {
+async function login(page, username, password) {
   const usernameXPath = '//input[@id="login-username"]';
   /** @type {puppeteer.ElementHandle} */
   const usernameInput = (await page.$x(usernameXPath))[0];
@@ -100,8 +162,19 @@ async function login(page) {
   /** @type {puppeteer.ElementHandle} */
   const passwordInput = (await page.$x(passwordXPath))[0];
   await passwordInput.type(password);
+  await navigate(page, '#login', { waitUntil: 'networkidle0' });
 
-  return navigate(page, '#login');
+  const loginElement = (
+    await page.$x('//*[@id="login-form"]/div/form/div[@class="text-danger"]')
+  )[0];
+  if (loginElement) {
+    const loginText = await page.evaluate((e) => e.textContent, loginElement);
+    if (loginText === 'Invalid Login') {
+      console.error('Invalid login credentials');
+      return false;
+    }
+  }
+  return true;
 }
 
 /**
@@ -152,7 +225,7 @@ async function chooseCharacter(page, character = 0) {
 async function confirmOverwrite(page) {
   const confirmSelector =
     'body > div.swal2-container.swal2-center.swal-infront.swal2-backdrop-show > div > div.swal2-actions > button.swal2-confirm.swal2-styled';
-  return navigate(page, confirmSelector, { waitUntil: 'networkidle2' });
+  return navigate(page, confirmSelector, { waitUntil: 'networkidle0' });
 }
 
 /**
@@ -214,12 +287,14 @@ async function scratchPresent(page) {
  */
 async function checkBankAvailability(page, desiredFreeSpaces) {
   const bankSpaceXPath = '//*[@id="bank-space-nav"]';
-  const bankSpaceElement = (await page.$x(bankSpaceXPath))[0];
+  const bankSpaceElement = await page.waitForXPath(bankSpaceXPath);
   const bankSpaceText = await page.evaluate(
     (element) => element.textContent,
     bankSpaceElement,
   );
   const [items, spaces] = bankSpaceText.split('/').map((str) => parseInt(str));
-  console.log(`Free space in bank: ${spaces - items}/${desiredFreeSpaces}`);
+  if (desiredFreeSpaces > 1) {
+    console.log(`Free space in bank: ${spaces - items}/${desiredFreeSpaces}`);
+  }
   return spaces - items >= desiredFreeSpaces;
 }
