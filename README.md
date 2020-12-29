@@ -54,6 +54,9 @@ Options:
   - `USER_NAME=<username>` The username to log in with.
   - `PASSWORD=<password>` The password to log in with.
 
+If you don't pass the username and password arguments the script will prompt you to enter them.
+
+
 # Development
 
 Feel free to open a PR if you want to add features/functionality. This is not a perfect implementation and some small additional changes could improve a lot.
