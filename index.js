@@ -26,7 +26,8 @@ program
     '-f --free-space <number>',
     'Number of free bank spaces required to  continue.',
     (val, radix) => parseInt(val),
-    20,
+    // I suspect there is 21 possible items to recieve. If this is incorrect the default should be changed...
+    21,
   );
 
 program.parse(process.argv);
